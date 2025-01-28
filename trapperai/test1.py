@@ -2,7 +2,10 @@ from ultralytics import YOLO
 print("load")
 model = YOLO("TrapperAI-v02.2024-YOLOv8-m.pt")
 print("model loaded")
-results = model.predict("DSCF0267.JPG")
+
+#results = model.predict("DSCF0267.JPG")
+# results = model.predict("DSCF0098.JPG")
+results = model.predict("DSCF0015.JPG")
 
 print("results n=", len(results)) # how many animals were detected
 

@@ -39,3 +39,6 @@ Check requirements.txt for more precises informations
 - ultralytics (YOLO based model execution; opencv, torch etc are dependencies)
 - dill ? 
 - ipython  ? (optional)
+
+see https://stackoverflow.com/questions/78636947/a-module-that-was-compiled-using-numpy-1-x-cannot-be-run-in-numpy-2-0-0-as-it-ma
+

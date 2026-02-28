@@ -8,15 +8,19 @@ Usage:
 Options:
     --verbose           Enable verbose output
     --dry-run           Run without applying tags
-    --imagefreq FREQ    Example numeric option (default: 1)
-    --tag-color COLOR   Finder color tag: Red, Orange, Yellow, Green, Blue, Purple, Gray (default: Green)
+    --imagefreq FREQ    Example numeric option (default: 1.0)
+
+Dependencies:
+    pip install xattr
 """
 
 import argparse
 import logging
-import subprocess
+import plistlib
 import sys
 from pathlib import Path
+
+import xattr
 
 
 # ---------------------------------------------------------------------------
@@ -32,99 +36,86 @@ def setup_logging(verbose: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# macOS tagging helpers
+# macOS Finder tagging via xattr
+#
+# Finder stores tags in the extended attribute com.apple.metadata:_kMDItemUserTags
+# as a binary plist containing a list of strings.
+# Each entry is either a plain tag name (e.g. "foo") or a color-tagged name
+# (e.g. "Green\n2") where the number is the Finder color index:
+#   0=none, 1=Gray, 2=Green, 3=Purple, 4=Blue, 5=Yellow, 6=Red, 7=Orange
 # ---------------------------------------------------------------------------
 
-# Finder color tag names accepted by the `tag` CLI tool (brew install tag)
-VALID_COLORS = {"Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Gray"}
+MACOS_TAG_XATTR = "com.apple.metadata:_kMDItemUserTags"
+
+
+def set_finder_tags(filepath: Path, tags: list[str], dry_run: bool = False) -> None:
+    """Replace all Finder tags on a file with the given list of tag strings."""
+    if dry_run:
+        logging.info("[dry-run] Would set tags %s on '%s'", tags, filepath)
+        return
+
+    try:
+        plist_data = plistlib.dumps(tags, fmt=plistlib.FMT_BINARY)
+        xattr.setxattr(str(filepath), MACOS_TAG_XATTR, plist_data)
+        logging.debug("Set tags %s on '%s'", tags, filepath)
+    except OSError as e:
+        logging.error("Failed to set tags on '%s': %s", filepath, e)
+
+
+def get_finder_tags(filepath: Path) -> list[str]:
+    """Return the current Finder tags on a file."""
+    try:
+        raw = xattr.getxattr(str(filepath), MACOS_TAG_XATTR)
+        return plistlib.loads(raw)
+    except (OSError, KeyError):
+        return []
 
 
 def add_finder_tag(filepath: Path, tag: str, dry_run: bool = False) -> None:
-    """Add a Finder color tag to a file using the `tag` CLI tool.
-
-    Install the tool with:  brew install tag
-    """
-    if tag not in VALID_COLORS:
-        logging.warning("Unknown tag color '%s'. Choose from: %s", tag, ", ".join(VALID_COLORS))
-        return
-
-    if dry_run:
-        logging.info("[dry-run] Would tag '%s' with '%s'", filepath, tag)
-        return
-
-    try:
-        subprocess.run(
-            ["tag", "--add", tag, str(filepath)],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        logging.debug("Tagged '%s' with '%s'", filepath, tag)
-    except FileNotFoundError:
-        logging.error(
-            "The `tag` CLI tool is not installed. Run: brew install tag"
-        )
-    except subprocess.CalledProcessError as e:
-        logging.error("Failed to tag '%s': %s", filepath, e.stderr.strip())
+    """Add a single tag to a file, preserving any existing tags."""
+    current = get_finder_tags(filepath)
+    # Strip color suffixes (e.g. "Green\n2") before comparing
+    existing_names = {t.split("\n")[0] for t in current}
+    if tag not in existing_names:
+        set_finder_tags(filepath, current + [tag], dry_run=dry_run)
+    else:
+        logging.debug("Tag '%s' already present on '%s'", tag, filepath)
 
 
-def remove_all_finder_tags(filepath: Path, dry_run: bool = False) -> None:
+def clear_finder_tags(filepath: Path, dry_run: bool = False) -> None:
     """Remove all Finder tags from a file."""
-    if dry_run:
-        logging.info("[dry-run] Would clear tags from '%s'", filepath)
-        return
-
-    try:
-        subprocess.run(
-            ["tag", "--remove", "*", str(filepath)],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except FileNotFoundError:
-        logging.error("The `tag` CLI tool is not installed. Run: brew install tag")
-    except subprocess.CalledProcessError as e:
-        logging.error("Failed to clear tags from '%s': %s", filepath, e.stderr.strip())
+    set_finder_tags(filepath, [], dry_run=dry_run)
 
 
 # ---------------------------------------------------------------------------
-# Processing logic  ← YOUR CODE GOES HERE
+# Processing logic  <- YOUR CODE GOES HERE
 # ---------------------------------------------------------------------------
 
-class ProcessingResult:
-    """Holds the outcome of processing a single file."""
-
-    def __init__(self, success: bool, tag: str = "Green", details: str = ""):
-        self.success = success
-        self.tag = tag          # Finder color tag to apply
-        self.details = details  # Human-readable summary
-
-
-def process_file(filepath: Path, args: argparse.Namespace) -> ProcessingResult:
+def process_file(filepath: Path, args: argparse.Namespace) -> str:
     """
-    Analyse a single file and return a ProcessingResult.
+    Analyse a single file and return a tag string.
 
+    The returned string will be applied as a Finder tag on the file.
     Replace the body of this function with your actual logic.
     Use `args` to access any CLI options you need (e.g. args.imagefreq).
+
+    Examples:
+        return "reviewed"
+        return "low-quality"
+        return "Green"   # also works with standard Finder color names
     """
     logging.debug("Processing: %s", filepath)
 
     # ------------------------------------------------------------------ #
     #  TODO: implement your processing here                                #
     #                                                                      #
-    #  Example skeleton:                                                   #
+    #  Example:                                                            #
     #    data = filepath.read_bytes()                                      #
     #    score = analyse(data, freq=args.imagefreq)                        #
-    #    if score > 0.8:                                                   #
-    #        return ProcessingResult(success=True, tag="Green",            #
-    #                                details=f"score={score:.2f}")         #
-    #    else:                                                              #
-    #        return ProcessingResult(success=False, tag="Red",             #
-    #                                details=f"score={score:.2f}")         #
+    #    return "high" if score > 0.8 else "low"                           #
     # ------------------------------------------------------------------ #
 
-    # Default stub: always succeed
-    return ProcessingResult(success=True, tag=args.tag_color, details="stub result")
+    return "unprocessed"  # stub
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +128,6 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-
     parser.add_argument(
         "files",
         nargs="+",
@@ -152,7 +142,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Simulate processing without applying tags",
+        help="Simulate processing without applying any tags",
     )
     parser.add_argument(
         "--imagefreq",
@@ -161,15 +151,6 @@ def parse_args() -> argparse.Namespace:
         metavar="FREQ",
         help="Example numeric option passed to process_file() (default: 1.0)",
     )
-    parser.add_argument(
-        "--tag-color",
-        default="Green",
-        choices=VALID_COLORS,
-        metavar="COLOR",
-        help="Default Finder tag color if processing succeeds (default: Green). "
-             f"Choices: {', '.join(sorted(VALID_COLORS))}",
-    )
-
     return parser.parse_args()
 
 
@@ -190,32 +171,20 @@ def main() -> int:
             continue
 
         try:
-            result = process_file(filepath, args)
+            tag = process_file(filepath, args)
         except Exception as exc:  # noqa: BLE001
-            logging.error("Unexpected error processing '%s': %s", filepath, exc)
-            add_finder_tag(filepath, "Red", dry_run=args.dry_run)
+            logging.error("Error processing '%s': %s", filepath, exc)
+            add_finder_tag(filepath, "error", dry_run=args.dry_run)
             fail_count += 1
             continue
 
-        # Apply tag based on result
-        add_finder_tag(filepath, result.tag, dry_run=args.dry_run)
+        add_finder_tag(filepath, tag, dry_run=args.dry_run)
+        logging.info("✓ %s → tag: '%s'", filepath.name, tag)
+        ok_count += 1
 
-        if result.success:
-            logging.info("✓ %s — %s [tag: %s]", filepath.name, result.details, result.tag)
-            ok_count += 1
-        else:
-            logging.info("✗ %s — %s [tag: %s]", filepath.name, result.details, result.tag)
-            fail_count += 1
-
-    # Summary
-    logging.info(
-        "\nDone — %d ok, %d failed, %d skipped",
-        ok_count, fail_count, skip_count,
-    )
-
+    logging.info("\nDone — %d ok, %d failed, %d skipped", ok_count, fail_count, skip_count)
     return 0 if fail_count == 0 else 1
 
 
 if __name__ == "__main__":
     sys.exit(main())
-

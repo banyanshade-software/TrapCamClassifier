@@ -1,0 +1,10 @@
+#!/bin/sh
+
+d=`dirname $0`
+d=`(cd "$d" && pwd)`
+#echo $d
+
+source $d/.venv/bin/activate
+
+python "$d/$0.py" $*
+exit $?

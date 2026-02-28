@@ -1,0 +1,4 @@
+cffi==2.0.0
+cv==1.0.0
+pycparser==2.23
+xattr==1.3.0

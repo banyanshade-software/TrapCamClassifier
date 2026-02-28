@@ -8,6 +8,9 @@ https://huggingface.co/OSCF/TrapperAI-v02.2024/tree/main
 
 
 # Running
+
+all this in trapperai dir !
+
 ### create venv
 ```
 python -m venv .venv

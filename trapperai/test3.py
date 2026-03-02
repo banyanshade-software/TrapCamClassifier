@@ -21,6 +21,7 @@ vid_path = f"{vid_dir}/DSCF0092.AVI" # many boars
 #vid_path = f"{vid_dir}/../MOVIE/VD_00042.MP4"
 vid_path = f"{vid_dir}/DSCF0009.AVI" # fox
 vid_path = f"{vid_dir}/DSCF0005.AVI" # fox
+vid_path = f"{vid_dir}/DSCF0027.AVI" # fox
 
 
 cap = cv2.VideoCapture(vid_path)

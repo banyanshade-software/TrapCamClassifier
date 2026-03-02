@@ -5,6 +5,8 @@ https://huggingface.co/OSCF/TrapperAI-v02.2024
 
 https://huggingface.co/OSCF/TrapperAI-v02.2024/tree/main
 
+Please download model in **trapperai/model/** directory from 
+https://huggingface.co/OSCF/TrapperAI-v02.2024/resolve/main/TrapperAI-v02.2024-YOLOv8-m.pt
 
 
 # Running

@@ -22,6 +22,11 @@ from pathlib import Path
 
 import xattr
 
+import cv2
+import imutils
+from ultralytics import YOLO
+from collections import Counter
+from collections import defaultdict
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -87,36 +92,6 @@ def clear_finder_tags(filepath: Path, dry_run: bool = False) -> None:
     set_finder_tags(filepath, [], dry_run=dry_run)
 
 
-# ---------------------------------------------------------------------------
-# Processing logic  <- YOUR CODE GOES HERE
-# ---------------------------------------------------------------------------
-
-def process_file(filepath: Path, args: argparse.Namespace) -> str:
-    """
-    Analyse a single file and return a tag string.
-
-    The returned string will be applied as a Finder tag on the file.
-    Replace the body of this function with your actual logic.
-    Use `args` to access any CLI options you need (e.g. args.imagefreq).
-
-    Examples:
-        return "reviewed"
-        return "low-quality"
-        return "Green"   # also works with standard Finder color names
-    """
-    logging.debug("Processing: %s", filepath)
-
-    # ------------------------------------------------------------------ #
-    #  TODO: implement your processing here                                #
-    #                                                                      #
-    #  Example:                                                            #
-    #    data = filepath.read_bytes()                                      #
-    #    score = analyse(data, freq=args.imagefreq)                        #
-    #    return "high" if score > 0.8 else "low"                           #
-    # ------------------------------------------------------------------ #
-
-    return "unprocessed"  # stub
-
 
 # ---------------------------------------------------------------------------
 # Main
@@ -171,20 +146,122 @@ def main() -> int:
             continue
 
         try:
-            tag = process_file(filepath, args)
+            taglist = process_file(filepath, args)
         except Exception as exc:  # noqa: BLE001
             logging.error("Error processing '%s': %s", filepath, exc)
             add_finder_tag(filepath, "error", dry_run=args.dry_run)
             fail_count += 1
             continue
 
-        add_finder_tag(filepath, tag, dry_run=args.dry_run)
-        logging.info("✓ %s → tag: '%s'", filepath.name, tag)
+        clear_finder_tags(filepath)
+        logging.info("✓ %s → tag: '%s'", filepath.name, taglist)
+        for tag in taglist:
+            add_finder_tag(filepath, tag, dry_run=args.dry_run)
         ok_count += 1
 
     logging.info("\nDone — %d ok, %d failed, %d skipped", ok_count, fail_count, skip_count)
     return 0 if fail_count == 0 else 1
 
 
+
+
+# ---------------------------------------------------------------------------
+# Processing logic  <- YOUR CODE GOES HERE
+# ---------------------------------------------------------------------------
+
+# constants 
+MIN_CONFIDENCE = 0.5
+MIN_MULTI = 1.5
+#
+
+def process_file(vid_path: Path, args: argparse.Namespace) -> str:
+    #return ['t1', 't2']
+    """
+    Analyse a single file and return a tag string.
+    Returns list of tags
+    """
+    logging.debug("Processing: %s", vid_path)
+    
+    #
+    print("load")
+    model = YOLO("model/TrapperAI-v02.2024-YOLOv8-m.pt")
+    print("model loaded")
+    
+    
+    
+    results = model.predict(
+    	source=vid_path,
+    	#imgsz=320,
+    	vid_stride=15,
+       	stream=True,
+        verbose=False
+    	)
+    
+    
+    all_labels = []
+    summary = defaultdict(list)
+    
+    #print(f"results: {len(results)}")
+    # only have len without stream=True
+    
+    for r in results:
+        print(f"result----------------------{len(r.boxes)}")
+        #r.show()
+        n = 0
+        for c in r.boxes:
+            lbl = model.names[int(c.cls)]
+            cf = float(c.conf)
+            print(f"c label {lbl} confidence {cf}")
+            if cf < MIN_CONFIDENCE:
+                continue
+            summary[lbl].append(cf)
+            n += cf
+    
+        if n>=MIN_MULTI:
+            summary['multi'].append(n)
+    
+        labels = [model.names[int(c)] for c in r.boxes.cls]
+        all_labels.extend(labels)
+    
+    #xsummary = Counter(all_labels)
+    #print(xsummary)
+    
+    print("---- summary :")
+    print(summary)
+    
+    sum2 = {}
+    long = False
+    for lbl,lcf in summary.items():
+        l = len(lcf)
+        print(f"summary .... {lbl} .... {l}")
+        if l <= 2:
+            continue
+        sum2[lbl] = lcf
+        if l>7:
+            long = True
+    
+    taglist = list(sum2.keys())
+    if len(taglist) >= 3:
+        # check for multiple species in same video
+        # we obviously have "multi" areay sets
+        taglist.append('multiplespecies')
+    
+    if long == True:
+        taglist.append('long')
+    
+    print(f"tags: {taglist}")
+    #print(sum2.keys())
+    return taglist
+
+
+
+
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+
+
 if __name__ == "__main__":
     sys.exit(main())
+

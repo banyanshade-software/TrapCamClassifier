@@ -1,6 +1,7 @@
 from ultralytics import YOLO
+exit(0)
 print("load")
-model = YOLO("model/TrapperAI-v02.2024-YOLOv8-m.pt")
+model = YOLO("TrapperAI-v02.2024-YOLOv8-m.pt")
 print("model loaded")
 
 #results = model.predict("DSCF0267.JPG")

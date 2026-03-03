@@ -99,6 +99,8 @@ def classify_crop(classifier: torch.nn.Module,
 vid_dir = "/Users/daniel/Documents/trackcam/20260222/100MEDIA/"
 vid_path = f"{vid_dir}/DSCF0027.AVI" # fox
 vid_path = "/Volumes/externe1/trackcam/20260111/DCIM/100MEDIA/DSCF0009.AVI"
+vid_path = "/Users/danielbraun/Documents/trackcam/compil/Chevreuils.mp4"
+
 
 
 device = 'cpu'
@@ -143,6 +145,8 @@ while True:
                 "label":      "EMPTY",
             })
         else:
+            if (len(boxes)>1):
+                print("***** multi")
             for (x1, y1, x2, y2, det_conf, _cls) in boxes:
                 # Safety-clip the bounding box to the frame
                 h, w = frame.shape[:2]

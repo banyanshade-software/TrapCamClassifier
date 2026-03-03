@@ -23,7 +23,7 @@ CLASS_NAMES = [
 # Imagenet-style normalisation used by timm ViT models
 CLASSIFIER_TRANSFORM = transforms.Compose([
     transforms.ToPILImage(),
-    transforms.Resize((224, 224)),
+    transforms.Resize((518, 518)),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406],
                          std=[0.229, 0.224, 0.225]),
@@ -106,6 +106,7 @@ detector = load_detector('deepfaune-yolov8s_960.pt', device)
 classifier = load_classifier('deepfaune-vit_large_patch14_dinov2.lvd142m.v3.pt', device)
 
 
+threshold=0.8
 cap = cv2.VideoCapture(vid_path)
 if not cap.isOpened():
     sys.exit(f"[error] Cannot open video: {vid_path}")
@@ -124,11 +125,12 @@ while True:
         break
 
     # Only analyse every N-th frame to speed things up
-    if frame_idx % 10 == 0:
+    if frame_idx % 5 == 0:
         timestamp = frame_idx / fps
 
         boxes = detect_animals(detector, frame, conf_threshold=0.25)
 
+        #print(f" boxes {boxes}")
         if not boxes:
             results_rows.append({
                 "frame":      frame_idx,
@@ -154,7 +156,7 @@ while True:
                 species, cls_conf = classify_crop(classifier, crop, device)
 
                 # Apply confidence threshold: below it → "UNDEFINED"
-                label = species if cls_conf >= args.threshold else "UNDEFINED"
+                label = species if cls_conf >= threshold else "UNDEFINED"
 
                 results_rows.append({
                     "frame":       frame_idx,
@@ -172,6 +174,8 @@ while True:
 
 pbar.close()
 cap.release()
+print(f"\n[done] {results_rows} detections")
+
 
 
 

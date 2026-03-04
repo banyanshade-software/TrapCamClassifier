@@ -22,9 +22,14 @@ from pathlib import Path
 
 import xattr
 
-import cv2
-import imutils
+import torch
+import timm
+import numpy as np
+from torchvision import transforms
 from ultralytics import YOLO
+from tqdm import tqdm
+import cv2
+
 from collections import Counter
 from collections import defaultdict
 
@@ -137,6 +142,8 @@ def main() -> int:
     fail_count = 0
     skip_count = 0
 
+    load_model()
+
     for raw_path in args.files:
         filepath = Path(raw_path)
 
@@ -145,6 +152,7 @@ def main() -> int:
             skip_count += 1
             continue
 
+        taglist = process_file(filepath, args)
         try:
             taglist = process_file(filepath, args)
         except Exception as exc:  # noqa: BLE001
@@ -169,90 +177,146 @@ def main() -> int:
 # Processing logic  <- YOUR CODE GOES HERE
 # ---------------------------------------------------------------------------
 
-# constants 
-MIN_CONFIDENCE = 0.5
-MIN_MULTI = 1.5
-#
 
+CLASSIFIER_TRANSFORM = transforms.Compose([
+    transforms.ToPILImage(),
+    transforms.Resize((518, 518)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                         std=[0.229, 0.224, 0.225]),
+])
+
+CLASS_NAMES = [
+    "BADGER", "BEAR", "BEAVER", "BIRD", "BISON",
+    "CAT", "CHAMOIS", "COW", "DOG", "EQUID",
+    "FALLOW_DEER", "FOX", "GENET", "GOAT", "HEDGEHOG",
+    "IBEX", "LAGOMORPH", "LYNX", "MARMOT", "MICROMAMMAL",
+    "MOUFLON", "MOOSE", "MUSTELID", "NUTRIA", "OTTER",
+    "RACCOON", "RED_DEER", "REINDEER", "ROE_DEER", "SHEEP",
+    "SQUIRREL", "WILD_BOAR", "WOLF", "WOLVERINE",
+    "HUMAN", "VEHICLE",
+]
+
+
+def load_detector(weights_path: str, device: str) -> YOLO:
+    """Load the DeepFaune YOLOv8s detector."""
+    print(f"[detector]  loading {weights_path}")
+    model = YOLO(weights_path)
+    model.to(device)
+    return model
+
+
+def load_classifier(weights_path: str, device: str) -> torch.nn.Module:
+    """Load the DeepFaune ViT-L/14 DINOv2 classifier."""
+    print(f"[classifier] loading {weights_path}")
+    num_classes = len(CLASS_NAMES)
+    model = timm.create_model(
+        "vit_large_patch14_dinov2.lvd142m",
+        pretrained=False,
+        num_classes=num_classes,
+    )
+    ckpt = torch.load(weights_path, map_location=device)
+    # DeepFaune checkpoints may be stored under a 'model' key
+    state_dict = ckpt.get("model", ckpt)
+    # Strip any 'module.' prefix from DataParallel checkpoints
+    state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
+    model.load_state_dict(state_dict, strict=False)
+    model.eval().to(device)
+    return model
+
+def detect_animals(detector: YOLO, frame: np.ndarray, conf_threshold: float = 0.25):
+    """
+    Run the YOLOv8 detector on a single BGR frame.
+    Returns a list of (x1, y1, x2, y2, conf, class_id) tuples.
+    """
+    results = detector.predict(frame, imgsz=960, conf=conf_threshold, verbose=False)
+    boxes = []
+    for r in results:
+        for box in r.boxes:
+            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+            conf = float(box.conf[0])
+            cls  = int(box.cls[0])
+            boxes.append((x1, y1, x2, y2, conf, cls))
+    return boxes
+
+
+
+@torch.no_grad()
+def classify_crop(classifier: torch.nn.Module,
+                  crop: np.ndarray,
+                  device: str) -> tuple[str, float]:
+    """
+    Classify a BGR crop with the ViT classifier.
+    Returns (predicted_label, confidence_score).
+    """
+    rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+    tensor = CLASSIFIER_TRANSFORM(rgb).unsqueeze(0).to(device)
+    logits = classifier(tensor)
+    probs  = torch.softmax(logits, dim=1)[0]
+    idx    = int(probs.argmax())
+    return CLASS_NAMES[idx], float(probs[idx])
+
+
+# -----------------------------------------
+
+detector = None
+classifier = None
+device = 'cpu'
+
+def load_model():
+    global detector;
+    global classifier;
+    detector = load_detector('deepfaune-yolov8s_960.pt', device)
+    classifier = load_classifier('deepfaune-vit_large_patch14_dinov2.lvd142m.v3.pt', device)
+    #print(f"detector {detector}")
+    #print(f"classifier {classifier}")
+
+    
 def process_file(vid_path: Path, args: argparse.Namespace) -> str:
     #return ['t1', 't2']
+    #print(f"detector {detector}")
     """
     Analyse a single file and return a tag string.
     Returns list of tags
     """
     logging.debug("Processing: %s", vid_path)
-    
     #
-    print("load")
-    model = YOLO("model/TrapperAI-v02.2024-YOLOv8-m.pt")
-    print("model loaded")
-    
-    
-    
-    results = model.predict(
-    	source=vid_path,
-    	#imgsz=320,
-    	vid_stride=15,
-       	stream=True,
-        verbose=False
-    	)
-    
-    
-    all_labels = []
-    summary = defaultdict(list)
-    
-    #print(f"results: {len(results)}")
-    # only have len without stream=True
-    
-    for r in results:
-        print(f"result----------------------{len(r.boxes)}")
-        #r.show()
-        n = 0
-        for c in r.boxes:
-            lbl = model.names[int(c.cls)]
-            cf = float(c.conf)
-            print(f"c label {lbl} confidence {cf}")
-            if cf < MIN_CONFIDENCE:
-                continue
-            summary[lbl].append(cf)
-            n += cf
-    
-        if n>=MIN_MULTI:
-            summary['multi'].append(n)
-    
-        labels = [model.names[int(c)] for c in r.boxes.cls]
-        all_labels.extend(labels)
-    
-    #xsummary = Counter(all_labels)
-    #print(xsummary)
-    
-    print("---- summary :")
-    print(summary)
-    
-    sum2 = {}
-    long = False
-    for lbl,lcf in summary.items():
-        l = len(lcf)
-        print(f"summary .... {lbl} .... {l}")
-        if l <= 2:
-            continue
-        sum2[lbl] = lcf
-        if l>7:
-            long = True
-    
-    taglist = list(sum2.keys())
-    if len(taglist) >= 3:
-        # check for multiple species in same video
-        # we obviously have "multi" areay sets
-        taglist.append('multiplespecies')
-    
-    if long == True:
-        taglist.append('long')
-    
-    print(f"tags: {taglist}")
-    #print(sum2.keys())
-    return taglist
+    cap = cv2.VideoCapture(vid_path)
+    if not cap.isOpened():
+        sys.exit(f"[error] Cannot open video: {vid_path}")
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps          = cap.get(cv2.CAP_PROP_FPS) or 25.0
+    print(f"[video] {vid_path}  |  {total_frames} frames  |  {fps:.1f} fps")
 
+    frame_idx = 0
+    r = tqdm(total=total_frames, unit="frame", desc="Processing")
+    
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        # Only analyse every N-th frame to speed things up
+        if frame_idx % 5 == 0:
+            timestamp = frame_idx / fps
+
+        boxes = detect_animals(detector, frame, conf_threshold=0.25)
+        #print(f" boxes {boxes}")
+        if not boxes:
+            continue
+        for (x1, y1, x2, y2, det_conf, _cls) in boxes:
+            h, w = frame.shape[:2]
+            x1c, y1c = max(0, x1), max(0, y1)
+            x2c, y2c = min(w, x2), min(h, y2)
+            crop = frame[y1c:y2c, x1c:x2c]
+
+            if crop.size == 0:
+                continue
+            species, cls_conf = classify_crop(classifier, crop, device)
+            print(f"idx {frame_idx} specie {species} conf {cls_conf}")
+
+
+    return []
 
 
 

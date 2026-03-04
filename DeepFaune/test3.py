@@ -101,6 +101,8 @@ vid_path = f"{vid_dir}/DSCF0027.AVI" # fox
 vid_path = "/Volumes/externe1/trackcam/20260111/DCIM/100MEDIA/DSCF0009.AVI"
 vid_path = "/Users/danielbraun/Documents/trackcam/compil/Chevreuils.mp4"
 
+vid_path = "/Volumes/externe1/trackcam/20260111/DCIM/100MEDIA/DSCF0006.AVI"
+
 
 
 device = 'cpu'
